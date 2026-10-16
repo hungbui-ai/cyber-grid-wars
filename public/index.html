@@ -302,7 +302,250 @@ Response: { "success": true, "gameOver": false }</pre>
       renderGrid();
     }
 
+
+    // Client-side fallback simulation engine for zero-server / GitHub Pages static hosting
+    let isClientSim = false;
+    let simGame = null;
+
+    function initClientSimulation(playerName) {
+      isClientSim = true;
+      currentMatchId = 'LOCAL-SIM';
+      myPlayerId = 'P-1-HUMAN';
+
+      // 7x7 board
+      const board = [];
+      for (let r = 0; r < 7; r++) {
+        const row = [];
+        for (let c = 0; c < 7; c++) {
+          row.push({ r, c, owner: null, isCore: false, isRig: false, shield: 0 });
+        }
+        board.push(row);
+      }
+
+      // Players
+      const p1 = { id: myPlayerId, name: playerName, color: '#00f0ff', core: [0, 0], energy: 6, score: 1, alive: true, isBot: false };
+      const p2 = { id: 'P-2-BOT', name: 'AI-Sentinel', color: '#ff0055', core: [6, 6], energy: 6, score: 1, alive: true, isBot: true };
+
+      board[0][0].owner = p1.id; board[0][0].isCore = true; board[0][0].shield = 1;
+      board[6][6].owner = p2.id; board[6][6].isCore = true; board[6][6].shield = 1;
+
+      simGame = {
+        id: currentMatchId,
+        status: 'active',
+        round: 1,
+        maxRounds: 20,
+        targetWinCells: 12,
+        players: [p1, p2],
+        turnIndex: 0,
+        board,
+        winner: null,
+        winReason: null
+      };
+
+      appendLog('[SYSTEM] Running in Standalone Client Mode (Static Hosting / Zero-Server).');
+      updateClientSimState();
+    }
+
+    function updateClientSimState() {
+      if (!isClientSim || !simGame) return;
+      latestGameState = {
+        id: simGame.id,
+        status: simGame.status,
+        round: simGame.round,
+        maxRounds: simGame.maxRounds,
+        targetWinCells: simGame.targetWinCells,
+        activePlayer: simGame.players[simGame.turnIndex],
+        players: simGame.players,
+        board: simGame.board,
+        winner: simGame.winner,
+        winReason: simGame.winReason
+      };
+
+      legalActionsCache = getSimLegalActions(simGame, myPlayerId);
+      renderState();
+
+      // Check Bot turn
+      if (simGame.status === 'active' && simGame.players[simGame.turnIndex].isBot) {
+        setTimeout(runSimBotMove, 600);
+      }
+    }
+
+    function getSimLegalActions(game, playerId) {
+      const p = game.players.find(x => x.id === playerId);
+      if (!p || !p.alive || game.status !== 'active') return [];
+
+      const legal = [{ action: 'PASS', cost: 0 }];
+      const owned = [];
+      for (let r = 0; r < 7; r++) {
+        for (let c = 0; c < 7; c++) {
+          if (game.board[r][c].owner === playerId) owned.push([r, c]);
+        }
+      }
+
+      const dirs = [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]];
+
+      // Expand
+      if (p.energy >= 2) {
+        const visited = new Set();
+        for (const [or, oc] of owned) {
+          for (const [dr, dc] of dirs) {
+            const nr = or + dr, nc = oc + dc;
+            const key = `${nr},${nc}`;
+            if (nr >= 0 && nr < 7 && nc >= 0 && nc < 7 && !visited.has(key)) {
+              visited.add(key);
+              const cell = game.board[nr][nc];
+              if (cell.owner !== playerId && cell.shield === 0) {
+                legal.push({ action: 'EXPAND', cost: 2, target: [nr, nc] });
+              }
+            }
+          }
+        }
+      }
+
+      // Rig
+      if (p.energy >= 4) {
+        for (const [or, oc] of owned) {
+          if (!game.board[or][oc].isRig && !game.board[or][oc].isCore) {
+            legal.push({ action: 'RIG', cost: 4, target: [or, oc] });
+          }
+        }
+      }
+
+      // Shield
+      if (p.energy >= 3) {
+        for (const [or, oc] of owned) {
+          if (game.board[or][oc].shield === 0) {
+            legal.push({ action: 'SHIELD', cost: 3, target: [or, oc] });
+          }
+        }
+      }
+
+      // EMP
+      if (p.energy >= 5) {
+        for (let r = 0; r < 7; r++) {
+          for (let c = 0; c < 7; c++) {
+            const cell = game.board[r][c];
+            if (cell.owner && cell.owner !== playerId && (cell.shield > 0 || cell.isRig)) {
+              if (owned.some(([or, oc]) => Math.abs(or - r) + Math.abs(oc - c) <= 2)) {
+                legal.push({ action: 'EMP', cost: 5, target: [r, c] });
+              }
+            }
+          }
+        }
+      }
+
+      return legal;
+    }
+
+    function executeSimAction(game, playerId, actionType, target) {
+      const p = game.players[game.turnIndex];
+      const legal = getSimLegalActions(game, playerId);
+      const match = legal.find(l => l.action === actionType && (!target || (l.target && l.target[0] === target[0] && l.target[1] === target[1])));
+      if (!match) return false;
+
+      p.energy -= match.cost;
+      if (actionType === 'EXPAND') {
+        const [tr, tc] = target;
+        game.board[tr][tc].owner = playerId;
+        game.board[tr][tc].shield = 0;
+        game.board[tr][tc].isRig = false;
+      } else if (actionType === 'RIG') {
+        game.board[target[0]][target[1]].isRig = true;
+      } else if (actionType === 'SHIELD') {
+        game.board[target[0]][target[1]].shield = 1;
+      } else if (actionType === 'EMP') {
+        const cell = game.board[target[0]][target[1]];
+        if (cell.shield > 0) cell.shield = 0;
+        else if (cell.isRig) cell.isRig = false;
+      }
+
+      // Update scores
+      const counts = {};
+      game.players.forEach(pl => counts[pl.id] = 0);
+      for (let r = 0; r < 7; r++) {
+        for (let c = 0; c < 7; c++) {
+          if (game.board[r][c].owner) counts[game.board[r][c].owner]++;
+        }
+      }
+      game.players.forEach(pl => {
+        pl.score = counts[pl.id] || 0;
+        if (game.board[pl.core[0]][pl.core[1]].owner !== pl.id) pl.alive = false;
+      });
+
+      // Win check
+      for (const pl of game.players) {
+        if (pl.score >= game.targetWinCells) {
+          game.status = 'finished';
+          game.winner = pl.name;
+          game.winReason = `Territory Dominance: Controlled ${pl.score} nodes`;
+          return true;
+        }
+      }
+
+      // Turn advance
+      game.turnIndex = (game.turnIndex + 1) % game.players.length;
+      if (game.turnIndex === 0) game.round++;
+
+      const nextP = game.players[game.turnIndex];
+      let bonusRig = 0;
+      for (let r = 0; r < 7; r++) {
+        for (let c = 0; c < 7; c++) {
+          if (game.board[r][c].owner === nextP.id && game.board[r][c].isRig) bonusRig++;
+        }
+      }
+      nextP.energy = Math.min(10, nextP.energy + 3 + bonusRig);
+      return true;
+    }
+
+    function runSimBotMove() {
+      if (!isClientSim || !simGame || simGame.status !== 'active') return;
+      const bot = simGame.players[simGame.turnIndex];
+      if (!bot || !bot.isBot) return;
+
+      const legal = getSimLegalActions(simGame, bot.id);
+      if (!legal || legal.length === 0) return;
+
+      let best = legal[0], maxS = -999;
+      for (const act of legal) {
+        let s = 0;
+        if (act.action === 'EXPAND') {
+          const [r, c] = act.target;
+          s += simGame.board[r][c].owner ? 40 : 20;
+          s -= (Math.abs(r - 3) + Math.abs(c - 3)) * 2;
+        } else if (act.action === 'EMP') s = 50;
+        else if (act.action === 'RIG') s = 25;
+        else if (act.action === 'SHIELD') s = 15;
+        else if (act.action === 'PASS') s = 5;
+
+        if (s > maxS) { maxS = s; best = act; }
+      }
+
+      executeSimAction(simGame, bot.id, best.action, best.target);
+      appendLog(`AI Sentinel: ${best.action}`);
+      updateClientSimState();
+    }
+
     async function startQuickAiMatch() {
+      const name = document.getElementById('input-player-name').value || 'Commander';
+      try {
+        const res = await fetch('/api/games', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ creatorName: name, maxPlayers: 2, autoFillBots: true })
+        });
+        if (!res.ok) throw new Error('API offline');
+        const d = await res.json();
+        currentMatchId = d.matchId;
+        myPlayerId = d.playerId;
+        isClientSim = false;
+        playTone(660, 'sine', 0.2);
+        initMatchPoll();
+      } catch (e) {
+        // Instant Fallback to Client-Side Simulation for GitHub Pages
+        initClientSimulation(name);
+      }
+    }
+
       const name = document.getElementById('input-player-name').value || 'Commander';
       try {
         const res = await fetch('/api/games', {
@@ -522,6 +765,16 @@ Response: { "success": true, "gameOver": false }</pre>
     }
 
     async function commitAction(action, target) {
+      if (isClientSim && simGame) {
+        const ok = executeSimAction(simGame, myPlayerId, action, target);
+        if (ok) {
+          playTone(action === 'EMP' ? 880 : 600, 'sine', 0.15);
+          appendLog(`${action} executed.`);
+          updateClientSimState();
+        }
+        return;
+      }
+
       try {
         const res = await fetch(`/api/games/${currentMatchId}/action`, {
           method: 'POST',
