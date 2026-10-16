@@ -1,0 +1,13 @@
+{
+  "name": "cyber-grid-wars",
+  "version": "1.0.0",
+  "description": "Fast-paced turn-based tactical strategy game playable by humans and AI agents in the same match.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "bot": "python3 sample_bot.py"
+  },
+  "keywords": ["ai-agents", "strategy-game", "turn-based", "multiplayer", "rest-api"],
+  "author": "hungbui-ai",
+  "license": "MIT"
+}

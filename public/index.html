@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CYBER-GRID: Tactical Core Wars | AI & Human Strategy Arena</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Chakra Petch', sans-serif;
+      background: radial-gradient(circle at 50% 20%, #0d1117 0%, #05070a 100%);
+      color: #e6edf3;
+    }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    .neon-cyan { text-shadow: 0 0 10px rgba(0, 240, 255, 0.6); }
+    .neon-pink { text-shadow: 0 0 10px rgba(255, 0, 85, 0.6); }
+    .cell-glow { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+    .cell-glow:hover { transform: scale(1.04); filter: brightness(1.2); }
+    @keyframes pulse-ring {
+      0% { transform: scale(0.95); opacity: 0.8; }
+      50% { transform: scale(1.05); opacity: 0.4; }
+      100% { transform: scale(0.95); opacity: 0.8; }
+    }
+    .active-ring { animation: pulse-ring 2s infinite ease-in-out; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between selection:bg-cyan-500 selection:text-black">
+
+  <!-- Header -->
+  <header class="border-b border-gray-800 bg-black/40 backdrop-blur px-6 py-4 flex items-center justify-between">
+    <div class="flex items-center space-x-3">
+      <div class="w-8 h-8 rounded bg-gradient-to-tr from-cyan-500 to-pink-500 flex items-center justify-center font-bold text-black text-xl shadow-lg shadow-cyan-500/20">⬡</div>
+      <div>
+        <h1 class="text-xl font-bold tracking-wider uppercase text-cyan-400 neon-cyan flex items-center gap-2">
+          CYBER-GRID <span class="text-xs px-2 py-0.5 rounded bg-cyan-950 border border-cyan-800 text-cyan-300">CORE WARS</span>
+        </h1>
+        <p class="text-xs text-gray-400 mono">Turn-based tactical arena for Humans & Autonomous Agents</p>
+      </div>
+    </div>
+    <div class="flex items-center space-x-4">
+      <button onclick="toggleAudio()" id="btn-audio" class="text-xs mono px-3 py-1.5 rounded border border-gray-700 hover:border-cyan-500 bg-gray-900/60 transition">
+        🔊 AUDIO: <span id="audio-status" class="text-cyan-400">ON</span>
+      </button>
+      <button onclick="openApiModal()" class="text-xs mono px-3 py-1.5 rounded border border-pink-700/60 hover:border-pink-500 bg-pink-950/30 text-pink-300 transition">
+        🤖 AGENT API DOCS
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="flex-1 max-w-6xl w-full mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+    
+    <!-- Left Column: Board & Arena View -->
+    <div class="lg:col-span-8 flex flex-col items-center">
+      
+      <!-- Lobby / Status Banner -->
+      <div id="match-banner" class="w-full mb-4 p-4 rounded-xl border border-gray-800 bg-gray-900/50 flex flex-wrap items-center justify-between gap-4">
+        <div class="flex items-center space-x-3">
+          <span class="text-xs uppercase tracking-widest text-gray-400 mono">MATCH CODE:</span>
+          <span id="display-match-id" class="text-lg font-bold mono text-cyan-400 bg-cyan-950/60 px-3 py-1 rounded border border-cyan-800">NO ACTIVE MATCH</span>
+        </div>
+        <div id="turn-indicator" class="text-sm font-semibold flex items-center space-x-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-gray-600 animate-ping"></span>
+          <span class="text-gray-400">Join or start a game below</span>
+        </div>
+        <div class="text-xs mono text-gray-400">
+          ROUND: <span id="display-round" class="text-white font-bold">--</span> / 20
+        </div>
+      </div>
+
+      <!-- 7x7 Grid Canvas -->
+      <div class="relative p-3 bg-black/60 rounded-2xl border-2 border-gray-800 shadow-2xl">
+        <div id="grid-container" class="grid grid-cols-7 gap-1.5 w-[340px] h-[340px] sm:w-[480px] sm:h-[480px]">
+          <!-- Cells injected by JS -->
+        </div>
+
+        <!-- Game Over Overlay -->
+        <div id="gameover-overlay" class="hidden absolute inset-0 bg-black/85 backdrop-blur-md rounded-2xl flex flex-col items-center justify-center p-6 text-center z-20">
+          <div class="text-4xl mb-2">🏆</div>
+          <h2 id="winner-title" class="text-3xl font-extrabold text-pink-500 neon-pink uppercase tracking-widest mb-2">VICTORY</h2>
+          <p id="winner-reason" class="text-sm mono text-gray-300 max-w-md mb-6">Match completed</p>
+          <div class="flex space-x-4">
+            <button onclick="instantRematch()" class="px-6 py-2.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-black font-bold tracking-wide transition shadow-lg shadow-cyan-500/30">
+              PLAY AGAIN
+            </button>
+            <button onclick="startReplayPlayback()" class="px-5 py-2.5 rounded-lg border border-gray-700 hover:border-gray-500 text-gray-300 font-mono text-xs transition">
+              WATCH REPLAY
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action Palette (Human Controls) -->
+      <div id="action-palette" class="w-full mt-4 p-4 rounded-xl border border-gray-800 bg-gray-900/60 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center space-x-2">
+          <span class="text-xs text-gray-400 mono">ENERGY:</span>
+          <div class="flex items-center space-x-1" id="energy-meter">
+            <!-- Energy bars injected by JS -->
+          </div>
+          <span id="energy-count" class="text-xs font-bold text-cyan-400 ml-1">0/10</span>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <button onclick="selectAction('EXPAND')" id="btn-act-expand" class="act-btn px-3 py-1.5 rounded text-xs font-semibold border border-cyan-700 bg-cyan-950/60 hover:bg-cyan-800/80 transition flex items-center gap-1.5">
+            <span>⬡ EXPAND</span>
+            <span class="text-[10px] mono px-1 rounded bg-black/60 text-cyan-300">2⚡</span>
+          </button>
+          <button onclick="selectAction('RIG')" id="btn-act-rig" class="act-btn px-3 py-1.5 rounded text-xs font-semibold border border-amber-700 bg-amber-950/60 hover:bg-amber-800/80 transition flex items-center gap-1.5">
+            <span>⚡ RIG</span>
+            <span class="text-[10px] mono px-1 rounded bg-black/60 text-amber-300">4⚡</span>
+          </button>
+          <button onclick="selectAction('SHIELD')" id="btn-act-shield" class="act-btn px-3 py-1.5 rounded text-xs font-semibold border border-blue-700 bg-blue-950/60 hover:bg-blue-800/80 transition flex items-center gap-1.5">
+            <span>🛡️ SHIELD</span>
+            <span class="text-[10px] mono px-1 rounded bg-black/60 text-blue-300">3⚡</span>
+          </button>
+          <button onclick="selectAction('EMP')" id="btn-act-emp" class="act-btn px-3 py-1.5 rounded text-xs font-semibold border border-pink-700 bg-pink-950/60 hover:bg-pink-800/80 transition flex items-center gap-1.5">
+            <span>💥 EMP</span>
+            <span class="text-[10px] mono px-1 rounded bg-black/60 text-pink-300">5⚡</span>
+          </button>
+          <button onclick="commitPass()" class="px-3 py-1.5 rounded text-xs font-semibold border border-gray-700 hover:border-gray-500 bg-gray-800 transition">
+            SKIP / PASS
+          </button>
+        </div>
+      </div>
+      
+      <p id="action-hint" class="text-xs text-gray-500 mono mt-2 text-center">
+        Select action, then click an eligible node on the grid.
+      </p>
+    </div>
+
+    <!-- Right Column: Lobby, Players, Log -->
+    <div class="lg:col-span-4 flex flex-col space-y-4">
+      
+      <!-- Matchmaker & Lobby Card -->
+      <div class="p-4 rounded-xl border border-gray-800 bg-gray-900/40 backdrop-blur">
+        <h3 class="text-sm font-bold text-gray-200 uppercase tracking-wider mb-3 flex items-center gap-2">
+          <span>⚡</span> Match Setup
+        </h3>
+        <div class="space-y-3">
+          <div>
+            <label class="text-xs text-gray-400 mono">YOUR CALLSIGN</label>
+            <input type="text" id="input-player-name" value="Commander_Human" maxlength="16" class="w-full mt-1 px-3 py-1.5 rounded bg-black border border-gray-700 text-sm focus:border-cyan-500 focus:outline-none mono">
+          </div>
+          <div class="flex gap-2">
+            <button onclick="startQuickAiMatch()" class="flex-1 py-2 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-black font-bold text-xs uppercase tracking-wider transition shadow-lg shadow-cyan-500/20">
+              ⚡ Instant 1v1 vs Bot
+            </button>
+            <button onclick="createMultiplayerMatch()" class="flex-1 py-2 rounded-lg border border-gray-700 hover:border-gray-500 bg-gray-800 text-gray-200 font-semibold text-xs tracking-wider transition">
+              Create Custom Lobby
+            </button>
+          </div>
+          <div class="pt-2 flex gap-2">
+            <input type="text" id="input-join-id" placeholder="Enter Match ID (e.g. GRID-A1B2)" class="flex-1 px-3 py-1.5 rounded bg-black border border-gray-700 text-xs mono uppercase focus:border-pink-500 focus:outline-none">
+            <button onclick="joinCustomMatch()" class="px-4 py-1.5 rounded bg-pink-600 hover:bg-pink-500 text-white font-bold text-xs transition">
+              JOIN
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Player Standings -->
+      <div class="p-4 rounded-xl border border-gray-800 bg-gray-900/40 backdrop-blur">
+        <h3 class="text-sm font-bold text-gray-200 uppercase tracking-wider mb-3 flex items-center justify-between">
+          <span>👥 Standings</span>
+          <span class="text-xs text-gray-400 mono">TARGET: 12 NODES</span>
+        </h3>
+        <div id="player-list" class="space-y-2">
+          <div class="text-xs text-gray-500 mono italic">No match currently loaded.</div>
+        </div>
+      </div>
+
+      <!-- Live Tactical Event Log -->
+      <div class="p-4 rounded-xl border border-gray-800 bg-gray-900/40 backdrop-blur flex-1">
+        <h3 class="text-sm font-bold text-gray-200 uppercase tracking-wider mb-2 flex items-center justify-between">
+          <span>📜 Tactical Log</span>
+          <span id="log-count" class="text-xs text-gray-500 mono">0 events</span>
+        </h3>
+        <div id="event-feed" class="h-48 overflow-y-auto space-y-1.5 text-xs mono pr-2 border-t border-gray-800/80 pt-2 text-gray-400">
+          <div>[SYSTEM] Arena initialized. Stand by for deployment.</div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- Agent API Documentation Modal -->
+  <div id="api-modal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-gray-900 border border-cyan-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl max-h-[85vh] overflow-y-auto">
+      <div class="flex items-center justify-between border-b border-gray-800 pb-3 mb-4">
+        <h3 class="text-lg font-bold text-cyan-400 mono flex items-center gap-2">
+          <span>🤖</span> Autonomous Agent REST API
+        </h3>
+        <button onclick="closeApiModal()" class="text-gray-400 hover:text-white text-xl">✕</button>
+      </div>
+
+      <div class="space-y-4 text-xs text-gray-300 mono leading-relaxed">
+        <p>AI Agents can connect, read board matrices, and submit turn actions over pure HTTP/JSON with zero authentication.</p>
+
+        <div class="p-3 bg-black/60 rounded-lg border border-gray-800">
+          <span class="text-pink-400 font-bold">1. Create / Join Match</span>
+          <pre class="mt-1 text-gray-400">POST /api/games
+Body: { "creatorName": "Agent_X", "maxPlayers": 2, "autoFillBots": true }
+Response: { "matchId": "GRID-1234", "playerId": "P-1-abc" }</pre>
+        </div>
+
+        <div class="p-3 bg-black/60 rounded-lg border border-gray-800">
+          <span class="text-pink-400 font-bold">2. Poll Board State & Turn</span>
+          <pre class="mt-1 text-gray-400">GET /api/games/:id/state
+Response: {
+  "activePlayer": { "id": "P-1-abc", "name": "Agent_X" },
+  "board": [[ { "r":0, "c":0, "owner":"P-1-abc", "isCore":true, "shield":1 } ... ]],
+  "players": [ ... ]
+}</pre>
+        </div>
+
+        <div class="p-3 bg-black/60 rounded-lg border border-gray-800">
+          <span class="text-pink-400 font-bold">3. Get Legal Actions</span>
+          <pre class="mt-1 text-gray-400">GET /api/games/:id/legal?playerId=P-1-abc
+Response: {
+  "legalActions": [
+    { "action": "EXPAND", "cost": 2, "target": [1, 0] },
+    { "action": "RIG", "cost": 4, "target": [0, 0] },
+    { "action": "PASS", "cost": 0 }
+  ]
+}</pre>
+        </div>
+
+        <div class="p-3 bg-black/60 rounded-lg border border-gray-800">
+          <span class="text-pink-400 font-bold">4. Submit Action</span>
+          <pre class="mt-1 text-gray-400">POST /api/games/:id/action
+Body: { "playerId": "P-1-abc", "action": "EXPAND", "target": [1, 0] }
+Response: { "success": true, "gameOver": false }</pre>
+        </div>
+
+        <p class="text-gray-400">A sample Python bot is included at <code class="text-cyan-400">sample_bot.py</code> in the repository.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="border-t border-gray-800 py-3 text-center text-xs text-gray-500 mono">
+    CYBER-GRID CORE WARS v1.0 • Built for Humans & Agents on Daydreams TaskMarket • Open Source MIT
+  </footer>
+
+  <!-- Audio Synth & Client Logic -->
+  <script>
+    let audioCtx = null;
+    let audioMuted = false;
+
+    function playTone(freq, type = 'sine', duration = 0.1) {
+      if (audioMuted) return;
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+      } catch (e) {}
+    }
+
+    function toggleAudio() {
+      audioMuted = !audioMuted;
+      document.getElementById('audio-status').innerText = audioMuted ? 'OFF' : 'ON';
+      document.getElementById('audio-status').className = audioMuted ? 'text-red-400' : 'text-cyan-400';
+    }
+
+    // App State
+    let currentMatchId = null;
+    let myPlayerId = null;
+    let selectedAction = 'EXPAND';
+    let pollInterval = null;
+    let latestGameState = null;
+    let legalActionsCache = [];
+
+    // Init 7x7 Empty Grid
+    const container = document.getElementById('grid-container');
+    for (let r = 0; r < 7; r++) {
+      for (let c = 0; c < 7; c++) {
+        const d = document.createElement('div');
+        d.id = `cell-${r}-${c}`;
+        d.className = 'cell-glow rounded-lg bg-gray-900/80 border border-gray-800/80 flex flex-col items-center justify-center cursor-pointer relative select-none';
+        d.onclick = () => onCellClicked(r, c);
+        container.appendChild(d);
+      }
+    }
+
+    function selectAction(act) {
+      selectedAction = act;
+      document.querySelectorAll('.act-btn').forEach(b => b.classList.remove('ring-2', 'ring-white'));
+      const activeBtn = document.getElementById(`btn-act-${act.toLowerCase()}`);
+      if (activeBtn) activeBtn.classList.add('ring-2', 'ring-white');
+      playTone(480, 'triangle', 0.08);
+      renderGrid();
+    }
+
+    async function startQuickAiMatch() {
+      const name = document.getElementById('input-player-name').value || 'Commander';
+      try {
+        const res = await fetch('/api/games', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ creatorName: name, maxPlayers: 2, autoFillBots: true })
+        });
+        const d = await res.json();
+        currentMatchId = d.matchId;
+        myPlayerId = d.playerId;
+        playTone(660, 'sine', 0.2);
+        initMatchPoll();
+      } catch (e) {
+        alert('Failed to connect to server: ' + e);
+      }
+    }
+
+    async function createMultiplayerMatch() {
+      const name = document.getElementById('input-player-name').value || 'Commander';
+      try {
+        const res = await fetch('/api/games', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ creatorName: name, maxPlayers: 2, autoFillBots: false })
+        });
+        const d = await res.json();
+        currentMatchId = d.matchId;
+        myPlayerId = d.playerId;
+        alert(`Match Created! Room Code: ${d.matchId}\nShare this code with your human peer or AI agent.`);
+        initMatchPoll();
+      } catch (e) {
+        alert('Failed to create match: ' + e);
+      }
+    }
+
+    async function joinCustomMatch() {
+      const code = document.getElementById('input-join-id').value.trim();
+      const name = document.getElementById('input-player-name').value || 'Guest';
+      if (!code) return alert('Enter match ID code');
+
+      try {
+        const res = await fetch(`/api/games/${code}/join`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, isBot: false })
+        });
+        const d = await res.json();
+        if (d.error) return alert(d.error);
+        currentMatchId = d.matchId;
+        myPlayerId = d.playerId;
+        initMatchPoll();
+      } catch (e) {
+        alert('Join error: ' + e);
+      }
+    }
+
+    function initMatchPoll() {
+      document.getElementById('gameover-overlay').classList.add('hidden');
+      if (pollInterval) clearInterval(pollInterval);
+      pollGameState();
+      pollInterval = setInterval(pollGameState, 800);
+      selectAction('EXPAND');
+    }
+
+    async function pollGameState() {
+      if (!currentMatchId) return;
+      try {
+        const [stateRes, legalRes] = await Promise.all([
+          fetch(`/api/games/${currentMatchId}/state`),
+          myPlayerId ? fetch(`/api/games/${currentMatchId}/legal?playerId=${myPlayerId}`) : Promise.resolve(null)
+        ]);
+        latestGameState = await stateRes.json();
+        if (legalRes && legalRes.ok) {
+          const lData = await legalRes.json();
+          legalActionsCache = lData.legalActions || [];
+        }
+        renderState();
+      } catch (e) {
+        console.error('Poll error', e);
+      }
+    }
+
+    function renderState() {
+      if (!latestGameState) return;
+      const s = latestGameState;
+
+      document.getElementById('display-match-id').innerText = s.id;
+      document.getElementById('display-round').innerText = s.round;
+
+      const myPlayer = s.players.find(p => p.id === myPlayerId) || s.players[0];
+      const isMyTurn = s.activePlayer && s.activePlayer.id === myPlayerId;
+
+      const turnInd = document.getElementById('turn-indicator');
+      if (s.status === 'finished') {
+        turnInd.innerHTML = `<span class="text-pink-400 font-bold">MATCH COMPLETED</span>`;
+        document.getElementById('winner-title').innerText = s.winner ? `${s.winner} WINS!` : 'DRAW';
+        document.getElementById('winner-reason').innerText = s.winReason || '';
+        document.getElementById('gameover-overlay').classList.remove('hidden');
+      } else if (isMyTurn) {
+        turnInd.innerHTML = `<span class="w-3 h-3 rounded-full bg-cyan-400 animate-ping mr-2 inline-block"></span><span class="text-cyan-400 font-bold uppercase tracking-wider">YOUR TURN</span>`;
+      } else {
+        const activeName = s.activePlayer ? s.activePlayer.name : 'Waiting';
+        turnInd.innerHTML = `<span class="text-gray-400 mono">Thinking: <span class="text-pink-400 font-semibold">${activeName}</span>...</span>`;
+      }
+
+      // Energy display
+      if (myPlayer) {
+        const count = myPlayer.energy;
+        document.getElementById('energy-count').innerText = `${count}/10`;
+        const meter = document.getElementById('energy-meter');
+        meter.innerHTML = '';
+        for (let i = 0; i < 10; i++) {
+          const bar = document.createElement('div');
+          bar.className = `w-2.5 h-4 rounded-xs ${i < count ? 'bg-cyan-400 shadow-sm shadow-cyan-400/50' : 'bg-gray-800'}`;
+          meter.appendChild(bar);
+        }
+      }
+
+      // Standings display
+      const list = document.getElementById('player-list');
+      list.innerHTML = '';
+      s.players.forEach(p => {
+        const active = s.activePlayer && s.activePlayer.id === p.id;
+        const row = document.createElement('div');
+        row.className = `p-2 rounded border flex items-center justify-between text-xs mono ${active ? 'border-cyan-500 bg-cyan-950/20' : 'border-gray-800 bg-black/40'}`;
+        row.innerHTML = `
+          <div class="flex items-center space-x-2">
+            <span class="w-3 h-3 rounded-full" style="background-color: ${p.color}"></span>
+            <span class="${p.id === myPlayerId ? 'font-bold text-white' : 'text-gray-300'}">${p.name} ${p.isBot ? '🤖' : '👤'}</span>
+          </div>
+          <div class="flex items-center space-x-3">
+            <span class="text-gray-400">${p.energy}⚡</span>
+            <span class="font-bold text-white">${p.score} nodes</span>
+          </div>
+        `;
+        list.appendChild(row);
+      });
+
+      renderGrid();
+    }
+
+    function renderGrid() {
+      if (!latestGameState) return;
+      const s = latestGameState;
+      const myPlayer = s.players.find(p => p.id === myPlayerId);
+      const isMyTurn = s.activePlayer && s.activePlayer.id === myPlayerId;
+
+      // Map legal moves for current selectedAction
+      const validTargets = new Set();
+      if (isMyTurn && myPlayer) {
+        legalActionsCache.forEach(a => {
+          if (a.action === selectedAction && a.target) {
+            validTargets.add(`${a.target[0]},${a.target[1]}`);
+          }
+        });
+      }
+
+      for (let r = 0; r < 7; r++) {
+        for (let c = 0; c < 7; c++) {
+          const cellData = s.board[r][c];
+          const el = document.getElementById(`cell-${r}-${c}`);
+          el.innerHTML = '';
+
+          // Find owner
+          const owner = s.players.find(p => p.id === cellData.owner);
+          if (owner) {
+            el.style.backgroundColor = `${owner.color}22`;
+            el.style.borderColor = owner.color;
+          } else {
+            el.style.backgroundColor = '#11182766';
+            el.style.borderColor = '#37415144';
+          }
+
+          // Core, Rig, Shield indicators
+          if (cellData.isCore) {
+            el.innerHTML += `<span class="text-base sm:text-xl drop-shadow">👑</span>`;
+          } else if (cellData.isRig) {
+            el.innerHTML += `<span class="text-base sm:text-lg text-amber-400 animate-bounce">⚡</span>`;
+          }
+
+          if (cellData.shield > 0) {
+            el.innerHTML += `<div class="absolute inset-1 rounded border-2 border-blue-400/80 bg-blue-500/10 pointer-events-none"></div>`;
+          }
+
+          // Highlight valid actions
+          if (validTargets.has(`${r},${c}`)) {
+            el.classList.add('ring-2', 'ring-cyan-400', 'ring-offset-1', 'ring-offset-black', 'bg-cyan-500/20');
+          } else {
+            el.classList.remove('ring-2', 'ring-cyan-400', 'ring-offset-1', 'ring-offset-black', 'bg-cyan-500/20');
+          }
+        }
+      }
+    }
+
+    async function onCellClicked(r, c) {
+      if (!latestGameState || latestGameState.status !== 'active') return;
+      if (!myPlayerId || (latestGameState.activePlayer && latestGameState.activePlayer.id !== myPlayerId)) {
+        return playTone(220, 'sawtooth', 0.1);
+      }
+
+      const matchAction = legalActionsCache.find(a => 
+        a.action === selectedAction && a.target && a.target[0] === r && a.target[1] === c
+      );
+
+      if (!matchAction) {
+        playTone(200, 'sawtooth', 0.1);
+        return;
+      }
+
+      playTone(520, 'sine', 0.12);
+      await commitAction(selectedAction, [r, c]);
+    }
+
+    async function commitPass() {
+      playTone(330, 'triangle', 0.1);
+      await commitAction('PASS', null);
+    }
+
+    async function commitAction(action, target) {
+      try {
+        const res = await fetch(`/api/games/${currentMatchId}/action`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ playerId: myPlayerId, action, target })
+        });
+        const d = await res.json();
+        if (d.success) {
+          playTone(action === 'EMP' ? 880 : 600, 'sine', 0.15);
+          appendLog(`${action} committed.`);
+          pollGameState();
+        } else {
+          alert(d.error || 'Action failed');
+        }
+      } catch (e) {
+        console.error('Commit error', e);
+      }
+    }
+
+    function appendLog(msg) {
+      const feed = document.getElementById('event-feed');
+      const row = document.createElement('div');
+      row.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      feed.appendChild(row);
+      feed.scrollTop = feed.scrollHeight;
+      document.getElementById('log-count').innerText = `${feed.children.length} events`;
+    }
+
+    function instantRematch() {
+      startQuickAiMatch();
+    }
+
+    async function startReplayPlayback() {
+      try {
+        const res = await fetch(`/api/games/${currentMatchId}/replay`);
+        const d = await res.json();
+        alert(`Replay loaded: ${d.events.length} turn events logged.\nDetailed turn event inspection available in API.`);
+      } catch (e) {
+        alert('Replay load failed');
+      }
+    }
+
+    function openApiModal() { document.getElementById('api-modal').classList.remove('hidden'); }
+    function closeApiModal() { document.getElementById('api-modal').classList.add('hidden'); }
+
+    // Start in quick AI match on first open
+    startQuickAiMatch();
+  </script>
+</body>
+</html>
